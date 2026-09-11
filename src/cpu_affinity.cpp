@@ -66,6 +66,13 @@ std::vector<CoreId> enumeratePhysicalCores() {
 }
 
 bool pinCurrentThreadToCore(const CoreId& core) {
+    // SetThreadGroupAffinity succeeds for an empty mask and leaves the thread
+    // unpinned, which would report success for a no-op. Reject it so the
+    // return value means the same thing on every platform.
+    if (core.mask == 0) {
+        return false;
+    }
+
     GROUP_AFFINITY ga = {};
     ga.Group = static_cast<WORD>(core.group);
     ga.Mask  = static_cast<KAFFINITY>(core.mask);
@@ -104,6 +111,10 @@ std::vector<CoreId> enumeratePhysicalCores() {
 }
 
 bool pinCurrentThreadToCore(const CoreId& core) {
+    if (core.mask == 0) {
+        return false;
+    }
+
 #if defined(__linux__)
     cpu_set_t set;
     CPU_ZERO(&set);

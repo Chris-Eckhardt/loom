@@ -12,6 +12,9 @@ struct CoreId {
 };
 
 std::vector<CoreId> enumeratePhysicalCores();
+
+// Returns true only if the calling thread is now restricted to `core`.
+// An empty mask, or a platform without affinity support, returns false.
 bool pinCurrentThreadToCore(const CoreId& core);
 
 } // namespace loom::detail

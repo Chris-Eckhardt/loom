@@ -61,3 +61,16 @@ install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/loomConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/loom
 )
+
+# --- tests ----------------------------------------------------------------
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(loom_default_tests ON)
+else()
+    set(loom_default_tests OFF)
+endif()
+option(LOOM_BUILD_TESTS "Build loom's test suite" ${loom_default_tests})
+
+if(LOOM_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
