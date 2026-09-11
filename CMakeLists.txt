@@ -15,7 +15,8 @@ include(GNUInstallDirs)
 add_library(loom
     src/cpu_affinity.cpp
     src/fiber.cpp
-    src/job_system.cpp)
+    src/job_system.cpp
+)
 add_library(loom::loom ALIAS loom)
 target_include_directories(loom PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>

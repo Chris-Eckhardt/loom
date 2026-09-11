@@ -339,4 +339,38 @@ void JobSystem::shutdown() {
     m_threadCount = 0;
 }
 
+void JobSystem::run(JobDecl mainJob) {
+    assert(m_impl != nullptr && "JobSystem::run called before init");
+    Impl* impl = m_impl;
+
+    if (impl->pinning && !impl->cores.empty()) {
+        detail::pinCurrentThreadToCore(impl->cores[0]);
+    }
+
+    WorkerTls tls;
+    tls.isMainThread = true;
+    tls.threadIndex = 0;
+    tls.rngState = 0x9e3779b9u | 1u;
+    tTls = &tls;
+    tls.threadFiber = detail::convertThreadToFiber();
+
+    // TODO: kick main job here
+
+    std::uint16_t start = acquireFreeFiber(impl);
+    if (start != kInvalidFiber) {
+        tls.prevAction = PrevAction::None;
+        tls.currentFiber = start;
+        detail::switchToFiber(impl->fibers[start]);
+    }
+
+    detail::convertFiberToThread();
+    tTls = nullptr;
+}
+
+void JobSystem::quit() noexcept {
+    if (m_impl != nullptr) {
+        m_impl->quit.store(true, std::memory_order_release);
+    }
+}
+
 } // namespace loom

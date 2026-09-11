@@ -22,6 +22,9 @@ public:
     void init(const JobSystemDesc& desc = {});
     void shutdown();
 
+    void run(JobDecl mainJob);
+    void quit() noexcept;
+
     struct Impl;
 
 private:
