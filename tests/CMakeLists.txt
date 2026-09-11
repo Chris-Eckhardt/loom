@@ -18,8 +18,10 @@ include(GoogleTest)
 function(loom_add_test name)
     add_executable(${name} ${name}.cpp)
     target_link_libraries(${name} PRIVATE loom::loom GTest::gtest_main)
-    gtest_discover_tests(${name})
+    # Cap the runtime so a lock that never hands off fails instead of hanging.
+    gtest_discover_tests(${name} PROPERTIES TIMEOUT 120)
 endfunction()
 
 loom_add_test(fiber_test)
 loom_add_test(cpu_affinity_test)
+loom_add_test(spin_lock_test)
