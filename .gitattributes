@@ -1,0 +1,45 @@
+* text=auto
+* text eol=lf
+# Binary files - DO NOT NORMALIZE
+*.lib    binary
+*.dll    binary
+*.exe    binary
+*.a      binary
+*.so     binary
+*.pdb    binary
+# Other non-text files
+*.jpg    binary
+*.jpeg   binary
+*.png    binary
+*.gif    binary
+*.bmp    binary
+*.pdf    binary
+*.doc    binary
+*.docx   binary
+*.xls    binary
+*.xlsx   binary
+*.ppt    binary
+*.pptx   binary
+*.zip    binary
+*.tar    binary
+*.gz     binary
+*.7z     binary
+*.mp3    binary
+*.wav    binary
+*.mp4    binary
+*.avi    binary
+*.mkv    binary
+*.flv    binary
+*.mov    binary
+*.wmv    binary
+*.iso    binary
+*.dmg    binary
+*.vmdk   binary
+*.swf    binary
+*.class  binary
+*.jar    binary
+*.war    binary
+*.ear    binary
+*.swc    binary
+*.apk    binary
+*.ipa    binary
