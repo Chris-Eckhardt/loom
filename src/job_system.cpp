@@ -567,4 +567,12 @@ void JobSystem::freeCounter(Counter* counter) {
     impl->freeCounters.push_back(counter->poolIndex);
 }
 
+std::vector<CpuCore> JobSystem::physicalCores() {
+    std::vector<CpuCore> out;
+    for (const auto& c : detail::enumeratePhysicalCores()) {
+        out.push_back(CpuCore{ c.group, c.mask });
+    }
+    return out;
+}
+
 } // namespace loom

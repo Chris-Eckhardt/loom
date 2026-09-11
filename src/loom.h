@@ -53,6 +53,12 @@ public:
         freeCounter(counter);
     }
 
+    static std::vector<CpuCore> physicalCores();
+
+    unsigned threadCount() const noexcept { 
+        return m_threadCount; 
+    }
+
     struct Impl;
 
 private:

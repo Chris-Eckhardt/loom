@@ -18,13 +18,15 @@ void unitOfWork(void* /*arg*/) {
 void gameMain(void* arg) {
     auto& js = *static_cast<loom::JobSystem*>(arg);
 
+    std::printf("gameMain running with %u scheduler threads\n", js.threadCount());
+
     constexpr int kJobs = 256;
     std::vector<loom::JobDecl> batch(kJobs, loom::JobDecl{ &unitOfWork, nullptr });
 
     loom::Counter* counter = nullptr;
     js.kickJobs(batch.data(), kJobs, &counter, loom::JobPriority::High);
     js.waitForCounterAndFree(counter);
-    std::printf("kickJobs: %d units of work complete\n", gWorkDone.load());
+    std::printf("kickJobs: %d units of work done\n", gWorkDone.load());
 
     js.quit();
 }
@@ -34,6 +36,8 @@ void gameMain(void* arg) {
 int main() {
     loom::JobSystem js;
     js.init();
+    auto cores = js.physicalCores();
+    std::printf("number of physical cores: %llu\n", cores.size());
     js.run(loom::JobDecl{ &gameMain, &js });
     js.shutdown();
     std::printf("shutdown complete\n");

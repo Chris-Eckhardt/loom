@@ -28,6 +28,11 @@ enum class ThreadAffinity : std::uint8_t {
     Main = 1,
 };
 
+struct CpuCore {
+    std::uint16_t group = 0;
+    std::uint64_t mask = 0;
+};
+
 struct JobSystemDesc {
     unsigned numWorkerThreads = 0;
     unsigned numFibers = 128;
