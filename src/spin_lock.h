@@ -7,6 +7,7 @@
 #include <intrin.h>
 #endif
 
+
 namespace loom::detail {
 
 inline void cpuPause() noexcept {

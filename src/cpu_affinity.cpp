@@ -20,6 +20,7 @@
 #endif
 #include <windows.h>
 
+
 namespace loom::detail {
 
 std::vector<CoreId> enumeratePhysicalCores() {
