@@ -25,6 +25,23 @@ public:
     void run(JobDecl mainJob);
     void quit() noexcept;
 
+    void kickJobs(
+        const JobDecl* jobs,
+        unsigned count,
+        Counter** outCounter = nullptr,
+        JobPriority priority = JobPriority::Normal,
+        ThreadAffinity affinity = ThreadAffinity::Any
+    );
+
+    void kickJob(
+        JobDecl job,
+        Counter** outCounter = nullptr,
+        JobPriority priority = JobPriority::Normal,
+        ThreadAffinity affinity = ThreadAffinity::Any
+    ) {
+        kickJobs(&job, 1, outCounter, priority, affinity);
+    }
+
     struct Impl;
 
 private:

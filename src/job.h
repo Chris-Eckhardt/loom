@@ -17,6 +17,17 @@ struct JobDecl {
         , arg(a) {}
 };
 
+enum class JobPriority : std::uint8_t {
+    High = 0,
+    Normal = 1,
+    Low = 2,
+};
+
+enum class ThreadAffinity : std::uint8_t {
+    Any = 0,
+    Main = 1,
+};
+
 struct JobSystemDesc {
     unsigned numWorkerThreads = 0;
     unsigned numFibers = 128;

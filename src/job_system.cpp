@@ -8,6 +8,7 @@
 #include <cassert>
 #include <thread>
 #include <vector>
+#include <deque>
 
 namespace loom {
 
@@ -33,6 +34,8 @@ struct WorkerTls {
     std::uint32_t rngState = 0x9e3779b9u;
 };
 
+thread_local WorkerTls* tTls = nullptr;
+
 inline std::uint32_t nextRand(WorkerTls* t) {
     std::uint32_t x = t->rngState;
     x ^= x << 13;
@@ -41,8 +44,6 @@ inline std::uint32_t nextRand(WorkerTls* t) {
     t->rngState = x;
     return x;
 }
-
-thread_local WorkerTls* tTls = nullptr;
 
 } // namespace
 
@@ -82,9 +83,21 @@ struct JobSystem::Impl {
     SpinLock counterLock;
     std::vector<std::uint16_t> freeCounters;
 
-    struct ThreadDeques {};
+    struct QueuedJob {
+        JobEntry entry = nullptr;
+        void* arg = nullptr;
+        Counter* counter = nullptr;
+        ThreadAffinity affinity = ThreadAffinity::Any;
+    };
+
+    struct ThreadDeques {
+        detail::WorkStealingDeque<QueuedJob> pri[3];
+    };
     unsigned threadCount = 0;
     std::unique_ptr<ThreadDeques[]> threadDeques;
+
+    SpinLock mainJobLock;
+    std::deque<QueuedJob> mainQueues[3];
 
     std::vector<std::thread> workers;
     std::atomic<bool> quit{ false };
@@ -157,6 +170,48 @@ std::uint16_t popReadyFiber(
     return kInvalidFiber;
 }
 
+bool popJob(
+    JobSystem::Impl* impl,
+    JobSystem::Impl::QueuedJob& out,
+    WorkerTls* tls
+) {
+    if (tls->isMainThread) {
+        SpinLockGuard g(impl->mainJobLock);
+        for (int p = 0; p < 3; ++p) {
+            if (!impl->mainQueues[p].empty()) {
+                out = impl->mainQueues[p].front();
+                impl->mainQueues[p].pop_front();
+                return true;
+            }
+        }
+    }
+
+    const unsigned self = tls->threadIndex;
+    for (int p = 0; p < 3; ++p) {
+        if (impl->threadDeques[self].pri[p].pop(out)) {
+            return true;
+        }
+    }
+
+    const unsigned n = impl->threadCount;
+    if (n > 1) {
+        const unsigned start = nextRand(tls) % n;
+        for (unsigned k = 0; k < n; ++k) {
+            const unsigned v = (start + k) % n;
+            if (v == self) {
+                continue;
+            }
+            for (int p = 0; p < 3; ++p) {
+                if (impl->threadDeques[v].pri[p].steal(out)) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 void counterAddWaiter(
     JobSystem::Impl* impl,
     Counter* c,
@@ -182,6 +237,21 @@ void counterAddWaiter(
 
     assert(false && "Counter waiter slots exhausted");
     pushReadyFiber(impl, fiber, toMain);
+}
+
+void counterDecrement(
+    JobSystem::Impl* impl,
+    Counter* c
+) {
+    const unsigned newVal = c->value.fetch_sub(1, std::memory_order_acq_rel) - 1;
+    SpinLockGuard g(c->lock);
+    for (auto& w : c->waiters) {
+        if (w.used && newVal <= w.target) {
+            w.used = false;
+            const bool toMain = impl->fiberPinnedToMain[w.fiber] != 0;
+            pushReadyFiber(impl, w.fiber, toMain);
+        }
+    }
 }
 
 void cleanupPreviousFiber(JobSystem::Impl* impl) {
@@ -228,18 +298,71 @@ void workerThreadMain(
     tTls = nullptr;
 }
 
-static void schedulerLoop(JobSystem::Impl* impl) {
+void schedulerLoop(JobSystem::Impl* impl) {
     cleanupPreviousFiber(impl);
 
     for (;;) {
-        // TODO: implement this
+        const bool isMain = tTls->isMainThread;
+
+        if (impl->quit.load(std::memory_order_acquire)) {
+            detail::switchToFiber(tTls->threadFiber);
+            return;
+        }
+
+        std::uint16_t rf = popReadyFiber(impl, isMain);
+        if (rf != kInvalidFiber) {
+            WorkerTls* t = tTls;
+            t->previousFiber = t->currentFiber;
+            t->prevAction = PrevAction::ToPool;
+            t->currentFiber = rf;
+            detail::switchToFiber(impl->fibers[rf]);
+            cleanupPreviousFiber(impl);
+            continue;
+        }
+
+        JobSystem::Impl::QueuedJob job;
+        if (popJob(impl, job, tTls)) {
+            const bool pinned = job.affinity == ThreadAffinity::Main;
+            const std::uint16_t self = tTls->currentFiber;
+            if (pinned) {
+                impl->fiberPinnedToMain[self] = 1;
+            }
+            job.entry(job.arg);
+            if (pinned) {
+                impl->fiberPinnedToMain[self] = 0;
+            }
+            if (job.counter != nullptr) {
+                counterDecrement(impl, job.counter);
+            }
+            continue;
+        }
+
         detail::cpuPause();
         std::this_thread::yield();
     }
 }
 
-static void schedulerFiberEntry(void* arg) {
+void schedulerFiberEntry(void* arg) {
     schedulerLoop(static_cast<JobSystem::Impl*>(arg));
+}
+
+Counter* allocCounter(
+    JobSystem::Impl* impl,
+    unsigned initial
+) {
+    std::uint16_t idx;
+    {
+        SpinLockGuard g(impl->counterLock);
+        assert(!impl->freeCounters.empty() && "Counter pool exhausted");
+        idx = impl->freeCounters.back();
+        impl->freeCounters.pop_back();
+    }
+    Counter* c = &impl->counters[idx];
+    c->value.store(initial, std::memory_order_release);
+    for (auto& w : c->waiters) {
+        w.used = false;
+    }
+    return c;
 }
 
 } // namespace
@@ -354,7 +477,7 @@ void JobSystem::run(JobDecl mainJob) {
     tTls = &tls;
     tls.threadFiber = detail::convertThreadToFiber();
 
-    // TODO: kick main job here
+    kickJob(mainJob);
 
     std::uint16_t start = acquireFreeFiber(impl);
     if (start != kInvalidFiber) {
@@ -370,6 +493,45 @@ void JobSystem::run(JobDecl mainJob) {
 void JobSystem::quit() noexcept {
     if (m_impl != nullptr) {
         m_impl->quit.store(true, std::memory_order_release);
+    }
+}
+
+void JobSystem::kickJobs(
+    const JobDecl* jobs,
+    unsigned count,
+    Counter** outCounter,
+    JobPriority priority,
+    ThreadAffinity affinity
+) {
+    Impl* impl = m_impl;
+    Counter* c = nullptr;
+    if (outCounter != nullptr) {
+        c = allocCounter(impl, count);
+        *outCounter = c;
+    }
+
+    if (count == 0) {
+        return;
+    }
+
+    if (affinity == ThreadAffinity::Main) {
+        SpinLockGuard g(impl->mainJobLock);
+        auto& q = impl->mainQueues[static_cast<int>(priority)];
+        for (unsigned i = 0; i < count; ++i) {
+            q.push_back(Impl::QueuedJob{ jobs[i].entry, jobs[i].arg, c, affinity });
+        }
+        return;
+    }
+
+    WorkerTls* tls = tTls;
+    assert(
+        tls != nullptr
+        && "kickJobs must be called from within a job (on a scheduler thread)"
+    );
+
+    auto& deque = impl->threadDeques[tls->threadIndex].pri[static_cast<int>(priority)];
+    for (unsigned i = 0; i < count; ++i) {
+        deque.push(Impl::QueuedJob{ jobs[i].entry, jobs[i].arg, c, affinity });
     }
 }
 

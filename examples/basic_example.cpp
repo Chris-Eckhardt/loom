@@ -1,6 +1,3 @@
-// Minimal demonstration of the fiber job system: a "frame" that kicks a batch
-// of work, waits on it, then runs a parallel-for — the shape of real engine use.
-
 #include "loom.h"
 
 #include <cstdio>
