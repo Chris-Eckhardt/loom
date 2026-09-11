@@ -44,11 +44,13 @@ std::vector<CoreId> enumeratePhysicalCores() {
 
     unsigned char* ptr = buffer.data();
     unsigned char* end = buffer.data() + length;
+
     while (ptr < end) {
         auto* info = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(ptr);
-        if (info->Relationship == RelationProcessorCore &&
-            info->Processor.GroupCount >= 1) {
+
+        if (info->Relationship == RelationProcessorCore && info->Processor.GroupCount >= 1) {
             const GROUP_AFFINITY& ga = info->Processor.GroupMask[0];
+
             if (ga.Mask != 0) {
                 const KAFFINITY lowest = ga.Mask & (~ga.Mask + 1);
                 CoreId c;
@@ -57,6 +59,7 @@ std::vector<CoreId> enumeratePhysicalCores() {
                 cores.push_back(c);
             }
         }
+
         ptr += info->Size;
     }
     return cores;
@@ -106,7 +109,9 @@ bool pinCurrentThreadToCore(const CoreId& core) {
     CPU_ZERO(&set);
 
     for (int i = 0; i < 64; ++i) {
-        if (core.mask & (static_cast<std::uint64_t>(1) << i)) CPU_SET(i, &set);
+        if (core.mask & (static_cast<std::uint64_t>(1) << i)) {
+            CPU_SET(i, &set);
+        }
     }
 
     return pthread_setaffinity_np(pthread_self(), sizeof(set), &set) == 0;
