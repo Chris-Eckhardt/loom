@@ -535,4 +535,36 @@ void JobSystem::kickJobs(
     }
 }
 
+void JobSystem::waitForCounter(
+    Counter* counter,
+    unsigned value
+) {
+    Impl* impl = m_impl;
+    if (counter->value.load(std::memory_order_acquire) <= value) {
+        return;
+    }
+
+    std::uint16_t freeFiber = acquireFreeFiber(impl);
+    if (freeFiber == kInvalidFiber) {
+        return;
+    }
+
+    WorkerTls* t = tTls;
+    t->previousFiber = t->currentFiber;
+    t->prevAction = PrevAction::ToWaitList;
+    t->waitCounter = counter;
+    t->waitValue = value;
+    t->currentFiber = freeFiber;
+
+    detail::switchToFiber(impl->fibers[freeFiber]);
+
+    cleanupPreviousFiber(impl);
+}
+
+void JobSystem::freeCounter(Counter* counter) {
+    Impl* impl = m_impl;
+    SpinLockGuard g(impl->counterLock);
+    impl->freeCounters.push_back(counter->poolIndex);
+}
+
 } // namespace loom

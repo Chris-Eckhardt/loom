@@ -42,6 +42,17 @@ public:
         kickJobs(&job, 1, outCounter, priority, affinity);
     }
 
+    void waitForCounter(Counter* counter, unsigned value = 0);
+    void freeCounter(Counter* counter);
+
+    void waitForCounterAndFree(
+        Counter* counter,
+        unsigned value = 0
+    ) {
+        waitForCounter(counter, value);
+        freeCounter(counter);
+    }
+
     struct Impl;
 
 private:
