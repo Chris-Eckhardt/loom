@@ -15,7 +15,7 @@ include(GNUInstallDirs)
 add_library(loom
     src/cpu_affinity.cpp
     src/fiber.cpp
-)
+    src/job_system.cpp)
 add_library(loom::loom ALIAS loom)
 target_include_directories(loom PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -37,6 +37,8 @@ install(TARGETS loom
 )
 
 install(FILES
+    src/job.h
+    src/loom.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/loom
 )
 
@@ -61,6 +63,13 @@ install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/loomConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/loom
 )
+
+# --- examples -------------------------------------------------------------
+option(LOOM_BUILD_EXAMPLES "Build the loom examples" ON)
+if(LOOM_BUILD_EXAMPLES)
+    add_executable(loom_example examples/basic_example.cpp)
+    target_link_libraries(loom_example PRIVATE loom::loom)
+endif()
 
 # --- tests ----------------------------------------------------------------
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
