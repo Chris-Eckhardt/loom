@@ -42,6 +42,14 @@ public:
         kickJobs(&job, 1, outCounter, priority, affinity);
     }
 
+    void kickJobOnMain(
+        JobDecl job,
+        Counter** outCounter = nullptr,
+        JobPriority priority = JobPriority::Normal
+    ) {
+        kickJobs(&job, 1, outCounter, priority, ThreadAffinity::Main);
+    }
+
     void waitForCounter(Counter* counter, unsigned value = 0);
     void freeCounter(Counter* counter);
 

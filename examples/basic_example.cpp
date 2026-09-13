@@ -15,6 +15,10 @@ void unitOfWork(void* /*arg*/) {
     gWorkDone.fetch_add(1, std::memory_order_relaxed);
 }
 
+void workForMainThread(void* /*arg*/) {
+    std::printf("this job is running on the main thread\n");
+}
+
 void gameMain(void* arg) {
     auto& js = *static_cast<loom::JobSystem*>(arg);
 
@@ -23,10 +27,20 @@ void gameMain(void* arg) {
     constexpr int kJobs = 256;
     std::vector<loom::JobDecl> batch(kJobs, loom::JobDecl{ &unitOfWork, nullptr });
 
-    loom::Counter* counter = nullptr;
-    js.kickJobs(batch.data(), kJobs, &counter, loom::JobPriority::High);
-    js.waitForCounterAndFree(counter);
-    std::printf("kickJobs: %d units of work done\n", gWorkDone.load());
+    // Kick N jobs on worker threads
+    {
+        loom::Counter* counter = nullptr;
+        js.kickJobs(batch.data(), kJobs, &counter, loom::JobPriority::High);
+        js.waitForCounterAndFree(counter);
+        std::printf("kickJobs: %d units of work done\n", gWorkDone.load());
+    }
+
+    // kick a job on the main thread
+    {
+        loom::Counter* counter = nullptr;
+        js.kickJobOnMain(loom::JobDecl{ &workForMainThread, nullptr }, &counter);
+        js.waitForCounterAndFree(counter);
+    }
 
     js.quit();
 }
