@@ -50,6 +50,15 @@ public:
         kickJobs(&job, 1, outCounter, priority, ThreadAffinity::Main);
     }
 
+    template <class F>
+        requires std::is_invocable_v<std::decay_t<F>&>
+    void kickJob(
+        F&& f,
+        Counter** outCounter = nullptr,
+        JobPriority priority = JobPriority::Normal,
+        ThreadAffinity affinity = ThreadAffinity::Any
+    );
+
     void waitForCounter(Counter* counter, unsigned value = 0);
     void freeCounter(Counter* counter);
 
@@ -73,5 +82,32 @@ private:
     Impl* m_impl = nullptr;
     unsigned m_threadCount = 0;
 };
+
+namespace detail {
+
+// This function invokes a heap copied callable, then frees it.
+template <class Fn>
+void lambdaJobTrampoline(void* arg) {
+    Fn* f = static_cast<Fn*>(arg);
+    (*f)();
+    delete f;
+}
+
+} // namespace detail
+
+// A lambda friendly overload of kickJob. It creates a function of the new type on the heap,
+// then passes it to kickjobs. The lambdaHobTrampoline manages the lifetime of the heap object.
+template <class F>
+    requires std::is_invocable_v<std::decay_t<F>&>
+void JobSystem::kickJob(
+    F&& f,
+    Counter** outCounter,
+    JobPriority priority,
+    ThreadAffinity affinity
+) {
+    using Fn = std::decay_t<F>;
+    JobDecl decl{ &detail::lambdaJobTrampoline<Fn>, new Fn(std::forward<F>(f)) };
+    kickJobs(&decl, 1, outCounter, priority, affinity);
+}
 
 } // namespace loom

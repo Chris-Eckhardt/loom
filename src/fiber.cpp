@@ -93,8 +93,7 @@ struct UContextFiber {
 thread_local UContextFiber* tCurrent = nullptr;
 
 void ucontextTrampoline(unsigned hi, unsigned lo) {
-    auto packed = (static_cast<std::uintptr_t>(hi) << 32) |
-                  static_cast<std::uintptr_t>(lo);
+    auto packed = (static_cast<std::uintptr_t>(hi) << 32) | static_cast<std::uintptr_t>(lo);
     auto* self = reinterpret_cast<UContextFiber*>(packed);
     self->fn(self->arg);
 }
@@ -103,7 +102,9 @@ void ucontextTrampoline(unsigned hi, unsigned lo) {
 
 FiberHandle convertThreadToFiber() noexcept {
     auto* f = new (std::nothrow) UContextFiber();
-    if (f == nullptr) return nullptr;
+    if (f == nullptr) {
+        return nullptr;
+    }
     getcontext(&f->ctx);
     tCurrent = f;
     return f;
@@ -144,8 +145,12 @@ FiberHandle createFiber(
 
 void deleteFiber(FiberHandle fiber) noexcept {
     auto* f = static_cast<UContextFiber*>(fiber);
-    if (f == nullptr) return;
-    if (f->ownsStack) std::free(f->stack);
+    if (f == nullptr) {
+        return;
+    }
+    if (f->ownsStack) {
+        std::free(f->stack);
+    }
     delete f;
 }
 

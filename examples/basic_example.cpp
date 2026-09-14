@@ -42,6 +42,17 @@ void gameMain(void* arg) {
         js.waitForCounterAndFree(counter);
     }
 
+    // kick a lambda
+    {
+        std::atomic<uint8_t> num = { 0 };
+        loom::Counter* counter = nullptr;
+        js.kickJob([&]{
+            num.fetch_add(1);
+        }, &counter);
+        js.waitForCounterAndFree(counter);
+        std::printf("kick lambda, expect: 1, observed: %d\n", num.load());
+    }
+
     js.quit();
 }
 
