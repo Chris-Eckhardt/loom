@@ -53,7 +53,7 @@ int main() {
 ## Building
 
 ```bash
-cmake -S . -B build -G Ninja
+cmake -S . -B build
 cmake --build build
 ```
 
@@ -62,4 +62,5 @@ It is recommended to use the loom::JobDecl API of kickJobs on hotpaths because t
 ## Future planned work
 
 - parallelFor(...)
+- reserved threads and a way to receiving work from them
 
