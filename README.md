@@ -16,6 +16,17 @@ A fiber based job system written in c++20 geared toward use in a game engine.
 
 Work is expressed as a job (function pointer + void*). Jobs run on a pool of fibers carried by one worker thread per core. Completion is tracked with atomic counters. Waiting on a counter suspends the current fiber and frees its thread to run other jobs. Once the counter drains, the fiber is resumed, possibly on a different thread. For the standard function pointer API, there is no per-job heap allocation and no OS level blocking on wait.
 
+## Why fibers and counters?
+
+* **Cheap waits.**
+    * `waitForCounter` doesn't block a thread. It suspends a fiber and the thread keeps working. This makes fine-grained dependencies practical.
+* **No callback spaghetti.**
+    * A job can kick child jobs and wait for them inline. Reading like straight-line code, because the wait suspends rather than returns.
+* **Cache-friendly.** 
+    * Counters are pooled and referenced by pointer. Jobs are raw function pointers. No shared state (e.g. no`std::function`, no `std::future`)
+* **Scales.** 
+    * Any-affinity jobs live in per-thread, lock-free Chase-Lev work-stealing deques. A thread runs its own work LIFO (hot in cache) and idle threads steal FIFO from others, so there is no single global queue lock on the hot path.
+
 ### API
 
 For a working example see `examples/basic_examples.cpp`
