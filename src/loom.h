@@ -59,6 +59,16 @@ public:
         ThreadAffinity affinity = ThreadAffinity::Any
     );
 
+        template <class F>
+        requires std::is_invocable_v<std::decay_t<F>&>
+    void kickJobOnMain(
+        F&& f,
+        Counter** outCounter = nullptr,
+        JobPriority priority = JobPriority::Normal
+    ) {
+        kickJob(std::forward<F>(f), outCounter, priority, ThreadAffinity::Main);
+    }
+
     void waitForCounter(Counter* counter, unsigned value = 0);
     void freeCounter(Counter* counter);
 
