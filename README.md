@@ -72,6 +72,5 @@ It is recommended to use the loom::JobDecl API of kickJobs on hotpaths because t
 
 ## Future planned work
 
-- parallelFor(...)
-- reserved threads and a way to receiving work from them
+- Reserved external threads + way for them to submit work
 
