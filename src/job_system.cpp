@@ -455,6 +455,9 @@ void JobSystem::shutdown() {
         }
     }
 
+    // Intentionally NOT calling DeleteFiber here.
+    // Calling DeleteFiber on suspended fibers will race with the wind down.
+    // Leaking them is a one time cost during shutdown.
     delete[] impl->fibers;
     delete[] impl->counters;
     delete impl;
@@ -573,6 +576,26 @@ std::vector<CpuCore> JobSystem::physicalCores() {
         out.push_back(CpuCore{ c.group, c.mask });
     }
     return out;
+}
+
+void JobSystem::kickAndWaitRange(
+    std::uint32_t begin,
+    std::uint32_t end,
+    std::uint32_t /*chunk*/,
+    JobEntry entry,
+    void* baseArg,
+    std::size_t argStride,
+    JobPriority priority
+) {
+    const std::uint32_t count = end - begin;
+    std::vector<JobDecl> decls(count);
+    auto* base = static_cast<char*>(baseArg);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        decls[i] = JobDecl{ entry, base + static_cast<std::size_t>(begin + i) * argStride };
+    }
+    Counter* c = nullptr;
+    kickJobs(decls.data(), count, &c, priority);
+    waitForCounterAndFree(c);
 }
 
 } // namespace loom

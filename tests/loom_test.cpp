@@ -53,7 +53,7 @@ TEST(JobSystem, KickBatchAndWait) {
         js.waitForCounterAndFree(c);
 
         EXPECT_EQ(n.load(), N);
-        });
+    });
 }
 
 TEST(JobSystem, WaitSuspendsAndResumes) {
@@ -70,7 +70,59 @@ TEST(JobSystem, WaitSuspendsAndResumes) {
     });
 }
 
+TEST(JobSystem, ParallelForCoversWholeRange) {
+    runJS([](JobSystem& js) {
+        constexpr std::uint32_t N = 200000;
+        std::vector<std::uint8_t> touched(N, 0);
+        std::atomic<long long> sum{ 0 };
+
+        js.parallelFor(0, N, [&](std::uint32_t i) {
+            touched[i] = 1;
+            sum.fetch_add(i, std::memory_order_relaxed);
+        });
+
+        for (std::uint32_t i = 0; i < N; ++i) {
+            ASSERT_EQ(touched[i], 1) << "index " << i << " was not visited";
+        }
+        const long long expected = static_cast<long long>(N) * (N - 1) / 2;
+        EXPECT_EQ(sum.load(), expected);
+    });
+}
+
 namespace {
+
+struct FanCtx {
+    JobSystem* js;
+    std::atomic<int>* total;
+};
+
+void fanJob(void* arg) {
+    auto* c = static_cast<FanCtx*>(arg);
+    c->js->parallelFor(0, 1000, [&](std::uint32_t) {
+        c->total->fetch_add(1, std::memory_order_relaxed);
+        });
+}
+
+} // namespace
+
+TEST(JobSystem, NestedJobsAndWaits) {
+    runJS([](JobSystem& js) {
+        std::atomic<int> total{ 0 };
+        constexpr int fanCount = 8;
+
+        FanCtx ctx{ &js, &total };
+        std::vector<JobDecl> jobs(fanCount, JobDecl{ &fanJob, &ctx });
+
+        Counter* c = nullptr;
+        js.kickJobs(jobs.data(), fanCount, &c);
+        js.waitForCounterAndFree(c);
+
+        EXPECT_EQ(total.load(), fanCount * 1000);
+    });
+}
+
+namespace {
+
 struct PinCtx {
     std::thread::id expected;
     JobSystem* js;
@@ -93,6 +145,7 @@ void pinnedCheckJob(void* arg) {
         c->mismatches->fetch_add(1, std::memory_order_relaxed);
     }
 }
+
 } // namespace
 
 TEST(JobSystem, MainAffinityStaysOnRunThreadAcrossWaits) {
@@ -126,4 +179,61 @@ TEST(JobSystem, WorkStealingLargeFanoutGrowsDeque) {
         js.waitForCounterAndFree(c);
         EXPECT_EQ(n.load(), N);
     });
+}
+
+TEST(JobSystem, LambdaKickJob) {
+    runJS([](JobSystem& js) {
+        std::atomic<int> n{ 0 };
+        Counter* c = nullptr;
+        js.kickJob([&] {
+            for (int i = 0; i < 50; ++i) {
+                n.fetch_add(1, std::memory_order_relaxed);
+            }
+            }, &c);
+        js.waitForCounterAndFree(c);
+        EXPECT_EQ(n.load(), 50);
+
+        std::atomic<int> m{ 0 };
+        Counter* c2 = nullptr;
+        js.kickJobOnMain([&] { m.fetch_add(7, std::memory_order_relaxed); }, &c2);
+        js.waitForCounterAndFree(c2);
+        EXPECT_EQ(m.load(), 7);
+
+        std::atomic<int> total{ 0 };
+        Counter* c3 = nullptr;
+        js.kickJob([&] {
+            js.parallelFor(0, 1000, [&](std::uint32_t) {
+                total.fetch_add(1, std::memory_order_relaxed);
+                });
+            }, &c3);
+        js.waitForCounterAndFree(c3);
+        EXPECT_EQ(total.load(), 1000);
+        });
+}
+
+TEST(JobSystem, CorePinningEnabledStillCompletes) {
+    JobSystemDesc desc;
+    desc.pinThreadsToCores = true;
+    runJS([](JobSystem& js) {
+        std::atomic<long long> sum{ 0 };
+        constexpr std::uint32_t N = 200000;
+        js.parallelFor(0, N, [&](std::uint32_t i) {
+            sum.fetch_add(i, std::memory_order_relaxed);
+        });
+        EXPECT_EQ(sum.load(), static_cast<long long>(N) * (N - 1) / 2);
+    }, desc);
+}
+
+TEST(JobSystem, SingleThreadedConfigStillCompletes) {
+    JobSystemDesc desc;
+    desc.numWorkerThreads = 1;
+    runJS([](JobSystem& js) {
+        std::atomic<int> total{ 0 };
+        FanCtx ctx{ &js, &total };
+        std::vector<JobDecl> jobs(4, JobDecl{ &fanJob, &ctx });
+        Counter* c = nullptr;
+        js.kickJobs(jobs.data(), 4, &c);
+        js.waitForCounterAndFree(c);
+        EXPECT_EQ(total.load(), 4 * 1000);
+    }, desc);
 }

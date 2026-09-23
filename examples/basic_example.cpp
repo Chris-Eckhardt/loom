@@ -64,6 +64,15 @@ void gameMain(void* arg) {
         std::printf("kick lambda on main, expect: 1, observed: %d\n", num.load());
     }
 
+    // parallelFor
+    {
+        std::atomic<long long> sum{ 0 };
+        js.parallelFor(0, 1'000'000, [&](std::uint32_t i) {
+            sum.fetch_add(i, std::memory_order_relaxed);
+        });
+        std::printf("parallelFor 0-1'000'000: sum = %lld\n", sum.load());
+    }
+
     js.quit();
 }
 
