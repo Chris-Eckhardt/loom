@@ -100,7 +100,7 @@ void fanJob(void* arg) {
     auto* c = static_cast<FanCtx*>(arg);
     c->js->parallelFor(0, 1000, [&](std::uint32_t) {
         c->total->fetch_add(1, std::memory_order_relaxed);
-        });
+    });
 }
 
 } // namespace
@@ -189,7 +189,7 @@ TEST(JobSystem, LambdaKickJob) {
             for (int i = 0; i < 50; ++i) {
                 n.fetch_add(1, std::memory_order_relaxed);
             }
-            }, &c);
+        }, &c);
         js.waitForCounterAndFree(c);
         EXPECT_EQ(n.load(), 50);
 
@@ -204,11 +204,11 @@ TEST(JobSystem, LambdaKickJob) {
         js.kickJob([&] {
             js.parallelFor(0, 1000, [&](std::uint32_t) {
                 total.fetch_add(1, std::memory_order_relaxed);
-                });
-            }, &c3);
+            });
+        }, &c3);
         js.waitForCounterAndFree(c3);
         EXPECT_EQ(total.load(), 1000);
-        });
+    });
 }
 
 TEST(JobSystem, CorePinningEnabledStillCompletes) {
@@ -236,4 +236,114 @@ TEST(JobSystem, SingleThreadedConfigStillCompletes) {
         js.waitForCounterAndFree(c);
         EXPECT_EQ(total.load(), 4 * 1000);
     }, desc);
+}
+
+namespace {
+
+struct ExtCtx {
+    JobSystem* js;
+    std::atomic<int>* ran;
+    std::atomic<bool>* go;
+    std::atomic<Counter*>* shared;
+};
+
+void extSubmitMain(void* p) {
+    auto* c = static_cast<ExtCtx*>(p);
+    c->go->store(true, std::memory_order_release);
+    Counter* cc = nullptr;
+    while ((cc = c->shared->load(std::memory_order_acquire)) == nullptr) {
+        std::this_thread::yield();
+    }
+    c->js->waitForCounterAndFree(cc);
+    c->js->quit();
+}
+
+struct SigCtx {
+    JobSystem* js;
+    std::atomic<Counter*>* shared;
+};
+
+void extSignalMain(void* p) {
+    auto* c = static_cast<SigCtx*>(p);
+    Counter* cc = c->js->createCounter(1);
+    c->shared->store(cc, std::memory_order_release);
+    c->js->waitForCounter(cc);
+    c->js->freeCounter(cc);
+    c->js->quit();
+}
+
+void quitImmediately(void* p) { 
+    static_cast<JobSystem*>(p)->quit(); 
+}
+
+} // namespace
+
+TEST(JobSystem, SubmitExternalFromForeignThread) {
+    JobSystem js;
+    js.init();
+
+    std::atomic<int>      ran{ 0 };
+    std::atomic<bool>     go{ false };
+    std::atomic<Counter*> shared{ nullptr };
+
+    std::thread producer([&] {
+        while (!go.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        std::vector<JobDecl> jobs(500, JobDecl{ &incJob, &ran });
+        Counter* c = nullptr;
+        js.submitExternal(jobs.data(), 500, &c);
+        shared.store(c, std::memory_order_release);
+    });
+
+    ExtCtx ctx{ &js, &ran, &go, &shared };
+    js.run(JobDecl{ &extSubmitMain, &ctx });
+    producer.join();
+    js.shutdown();
+
+    EXPECT_EQ(ran.load(), 500);
+}
+
+TEST(JobSystem, ExternalCounterSignalWakesFiber) {
+    JobSystem js;
+    js.init();
+
+    std::atomic<Counter*> shared{ nullptr };
+
+    std::thread signaler([&] {
+        Counter* cc = nullptr;
+        while ((cc = shared.load(std::memory_order_acquire)) == nullptr) {
+            std::this_thread::yield();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        js.signalCounter(cc);
+    });
+
+    SigCtx ctx{ &js, &shared };
+    js.run(JobDecl{ &extSignalMain, &ctx });
+    signaler.join();
+    js.shutdown();
+    SUCCEED();
+}
+
+TEST(JobSystem, CoreReservationExposesCores) {
+    const auto all = JobSystem::physicalCores();
+    if (all.size() < 2) {
+        GTEST_SKIP() << "needs >= 2 physical cores";
+    }
+
+    JobSystem js;
+    JobSystemDesc desc;
+    desc.pinThreadsToCores = true;
+    desc.reservedCores = 1;
+    js.init(desc);
+
+    const auto reserved = js.reservedCores();
+    ASSERT_EQ(reserved.size(), 1u);
+
+    EXPECT_EQ(js.threadCount(), static_cast<unsigned>(all.size()) - 1);
+    EXPECT_TRUE(JobSystem::pinThreadToCore(reserved[0]));
+
+    js.run(JobDecl{ &quitImmediately, &js });
+    js.shutdown();
 }

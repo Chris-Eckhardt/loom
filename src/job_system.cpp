@@ -90,6 +90,10 @@ struct JobSystem::Impl {
         ThreadAffinity affinity = ThreadAffinity::Any;
     };
 
+    SpinLock              intakeLock;
+    std::deque<QueuedJob> intakeQueues[3];
+    std::atomic<int>      intakePending{ 0 };
+
     struct ThreadDeques {
         detail::WorkStealingDeque<QueuedJob> pri[3];
     };
@@ -105,6 +109,7 @@ struct JobSystem::Impl {
     bool pinning = false;
     std::vector<detail::CoreId> cores;
     unsigned schedulerCoreCount = 0;
+    std::vector<CpuCore> reserved;
 };
 
 namespace {
@@ -181,6 +186,18 @@ bool popJob(
             if (!impl->mainQueues[p].empty()) {
                 out = impl->mainQueues[p].front();
                 impl->mainQueues[p].pop_front();
+                return true;
+            }
+        }
+    }
+
+    if (impl->intakePending.load(std::memory_order_acquire) > 0) {
+        SpinLockGuard g(impl->intakeLock);
+        for (int p = 0; p < 3; ++p) {
+            if (!impl->intakeQueues[p].empty()) {
+                out = impl->intakeQueues[p].front();
+                impl->intakeQueues[p].pop_front();
+                impl->intakePending.fetch_sub(1, std::memory_order_release);
                 return true;
             }
         }
@@ -385,6 +402,23 @@ void JobSystem::init(const JobSystemDesc& desc) {
         impl->pinning = !impl->cores.empty();
     }
 
+    if (impl->pinning) {
+        const unsigned total = static_cast<unsigned>(impl->cores.size());
+        const unsigned reserve = desc.reservedCores < total
+            ? desc.reservedCores
+            : (total - 1);
+
+        impl->schedulerCoreCount = total - reserve;
+        for (unsigned i = impl->schedulerCoreCount; i < total; ++i) {
+            impl->reserved.push_back(
+                CpuCore{
+                    impl->cores[i].group,
+                    impl->cores[i].mask
+                }
+            );
+        }
+    }
+
     unsigned hw = std::thread::hardware_concurrency();
     if (hw == 0) {
         hw = 1;
@@ -395,8 +429,6 @@ void JobSystem::init(const JobSystemDesc& desc) {
         workers = desc.numWorkerThreads;
     }
     else if (impl->pinning) {
-        impl->schedulerCoreCount = static_cast<unsigned>(impl->cores.size());
-
         workers = impl->schedulerCoreCount > 1 
             ? impl->schedulerCoreCount - 1 
             : 0;
@@ -538,6 +570,52 @@ void JobSystem::kickJobs(
     }
 }
 
+void JobSystem::submitExternal(
+    const JobDecl* jobs,
+    unsigned count,
+    Counter** outCounter,
+    JobPriority priority
+) {
+    Impl* impl = m_impl;
+    assert(impl != nullptr && "submitExternal called before init / after shutdown");
+    Counter* c = nullptr;
+    if (outCounter != nullptr) {
+        c = allocCounter(impl, count);
+        *outCounter = c;
+    }
+
+    if (count == 0) {
+        return;
+    }
+
+    {
+        SpinLockGuard g(impl->intakeLock);
+        auto& q = impl->intakeQueues[static_cast<int>(priority)];
+        for (unsigned i = 0; i < count; ++i) {
+            q.push_back(
+                Impl::QueuedJob{
+                    jobs[i].entry,
+                    jobs[i].arg, c,
+                    ThreadAffinity::Any
+                }
+            );
+        }
+    }
+
+    impl->intakePending.fetch_add(
+        static_cast<int>(count),
+        std::memory_order_release
+    );
+}
+
+Counter* JobSystem::createCounter(unsigned value) {
+    return allocCounter(m_impl, value);
+}
+
+void JobSystem::signalCounter(Counter* counter) {
+    counterDecrement(m_impl, counter);
+}
+
 void JobSystem::waitForCounter(
     Counter* counter,
     unsigned value
@@ -576,6 +654,14 @@ std::vector<CpuCore> JobSystem::physicalCores() {
         out.push_back(CpuCore{ c.group, c.mask });
     }
     return out;
+}
+
+std::vector<CpuCore> JobSystem::reservedCores() const {
+    return m_impl != nullptr ? m_impl->reserved : std::vector<CpuCore>{};
+}
+
+bool JobSystem::pinThreadToCore(const CpuCore& core) {
+    return detail::pinCurrentThreadToCore(detail::CoreId{ core.group, core.mask });
 }
 
 void JobSystem::kickAndWaitRange(

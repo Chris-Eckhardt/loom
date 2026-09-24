@@ -43,6 +43,11 @@ void gameMain(void* arg) {
     js.kickJobs(jobs, 64, &c, loom::JobPriority::High);
     js.waitForCounterAndFree(c); // suspends this fiber until done
 
+    // Data-parallel loop (blocks until the whole range is processed).
+    js.parallelFor(0, 1'000'000, [&](std::uint32_t i) {
+        /* thread-safe body */
+    });
+
     // Main-thread-only work (window pump, present, platform UI): pin it so it
     // runs on the run() thread and never migrates, even across a wait.
     loom::Counter* p = nullptr;
@@ -69,8 +74,4 @@ cmake --build build
 ```
 
 It is recommended to use the loom::JobDecl API of kickJobs on hotpaths because the lambda overload has a some heap allocation overhead.
-
-## Future planned work
-
-- Reserved external threads + way for them to submit work
 

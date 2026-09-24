@@ -38,6 +38,7 @@ struct JobSystemDesc {
     unsigned numFibers = 128;
     std::size_t fiberStackSize = 512 * 1024;
     bool pinThreadsToCores = false;
+    unsigned reservedCores = 0;
 };
 
 } // namespace loom

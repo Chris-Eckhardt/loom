@@ -59,7 +59,7 @@ public:
         ThreadAffinity affinity = ThreadAffinity::Any
     );
 
-        template <class F>
+    template <class F>
         requires std::is_invocable_v<std::decay_t<F>&>
     void kickJobOnMain(
         F&& f,
@@ -78,6 +78,23 @@ public:
         JobPriority priority = JobPriority::Normal
     );
 
+    void submitExternal(
+        const JobDecl* jobs,
+        unsigned count,
+        Counter** outCounter = nullptr,
+        JobPriority priority = JobPriority::High
+    );
+
+    void submitExternal(
+        JobDecl job,
+        Counter** outCounter = nullptr,
+        JobPriority priority = JobPriority::High
+    ) {
+        submitExternal(&job, 1, outCounter, priority);
+    }
+
+    Counter* createCounter(unsigned value);
+    void signalCounter(Counter* counter);
     void waitForCounter(Counter* counter, unsigned value = 0);
     void freeCounter(Counter* counter);
 
@@ -89,7 +106,11 @@ public:
         freeCounter(counter);
     }
 
+    std::vector<CpuCore> reservedCores() const;
+
     static std::vector<CpuCore> physicalCores();
+
+    static bool pinThreadToCore(const CpuCore& core);
 
     unsigned threadCount() const noexcept { 
         return m_threadCount; 
