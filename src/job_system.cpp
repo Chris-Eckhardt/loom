@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 #include <deque>
+#include <cstdlib>
 
 namespace loom {
 
@@ -627,7 +628,11 @@ void JobSystem::waitForCounter(
 
     std::uint16_t freeFiber = acquireFreeFiber(impl);
     if (freeFiber == kInvalidFiber) {
-        return;
+        // This only happens when quit is called. 
+        // This fiber is suspended and reclaimed at shutdown.
+        detail::switchToFiber(tTls->threadFiber);
+        assert(false && "abandoned fiber was resumed");
+        std::abort();
     }
 
     WorkerTls* t = tTls;

@@ -272,11 +272,53 @@ void extSignalMain(void* p) {
     c->js->quit();
 }
 
-void quitImmediately(void* p) { 
-    static_cast<JobSystem*>(p)->quit(); 
+void quitImmediately(void* p) {
+    static_cast<JobSystem*>(p)->quit();
+}
+
+struct AbandonCtx {
+    JobSystem* js;
+    std::atomic<bool>* waiting;
+    std::atomic<bool>* passedWait;
+};
+
+void waitOnNeverSignaled(void* p) {
+    auto* c = static_cast<AbandonCtx*>(p);
+    Counter* cc = c->js->createCounter(1);
+    c->waiting->store(true, std::memory_order_release);
+    c->js->waitForCounter(cc);
+    c->passedWait->store(true, std::memory_order_release);
 }
 
 } // namespace
+
+// A job blocked in waitForCounter with no free fiber must be abandoned on quit,
+TEST(JobSystem, QuitDuringWaitDoesNotResumeJob) {
+    JobSystem js;
+    JobSystemDesc desc;
+    desc.numWorkerThreads = 1;
+    desc.numFibers = 1;
+    js.init(desc);
+
+    std::atomic<bool> waiting{ false };
+    std::atomic<bool> passedWait{ false };
+
+    std::thread quitter([&] {
+        while (!waiting.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        js.quit();
+    });
+
+    AbandonCtx ctx{ &js, &waiting, &passedWait };
+    js.run(JobDecl{ &waitOnNeverSignaled, &ctx });
+    quitter.join();
+    js.shutdown();
+
+    EXPECT_TRUE(waiting.load());
+    EXPECT_FALSE(passedWait.load());
+}
 
 TEST(JobSystem, SubmitExternalFromForeignThread) {
     JobSystem js;
