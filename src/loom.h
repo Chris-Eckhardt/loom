@@ -1,6 +1,7 @@
 #pragma once
 
 #include "job.h"
+#include "version.h"
 
 #include <cstdint>
 #include <type_traits>

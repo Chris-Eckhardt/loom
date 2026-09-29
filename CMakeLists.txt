@@ -18,8 +18,16 @@ add_library(loom
     src/job_system.cpp
 )
 add_library(loom::loom ALIAS loom)
+
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/version.h
+    @ONLY
+)
+
 target_include_directories(loom PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_compile_features(loom PUBLIC cxx_std_20)
@@ -40,6 +48,7 @@ install(TARGETS loom
 install(FILES
     src/job.h
     src/loom.h
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/version.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/loom
 )
 
@@ -57,7 +66,9 @@ configure_package_config_file(
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/loomConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
+    # Pre-1.0, minor bumps may break the API (semver), so only accept the
+    # same MAJOR.MINOR. Switch to SameMajorVersion once loom hits 1.0.
+    COMPATIBILITY SameMinorVersion
 )
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/loomConfig.cmake
